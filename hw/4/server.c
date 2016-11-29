@@ -1,12 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include <pthread.h>
 
 #include <string.h>
+#include <dirent.h>
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -14,18 +17,165 @@
 #define BUFFER_SIZE 1024
 
 typedef struct threadData threadData;
+typedef struct dirEntList dirEntList;
+
+struct dirEntList{
+	dirent* entry;
+	dirEntList* prev;
+	dirEntList* next;
+}
 
 struct threadData{
 	int* sock;
 	struct sockaddr_in* client;
+	char* directory;
 };
 
+void debugPrintBuffer(char* buffer){
+	int i = 0;
+	for(; i < BUFFER_SIZE; ++i){
+		printf("|%c", buffer[i]);
+	}
+	printf("\n");
+}
+
+/*This function takes in a string, and parses it by whitespace or by /n token
+much like the strtok function, but safe for this application.*/
+char* parseInput(char** inputString, int sizeLimit){
+	int buffSize = BUFFER_SIZE;
+	if(sizeLimit < 0){
+		sizeLimit = buffSize;
+	}
+	char* output = calloc(buffSize, sizeof(char));
+	int i = 0;
+	while(!isalnum((*inputString)[i])){
+		(*inputString)[i] = '\0';
+		++i;
+	} 
+	int j = 0;
+	while((*inputString)[i] != '\n' && (*inputString)[i] != ' '){
+		output[j] = (*inputString)[i];
+		(*inputString)[i] = '\0';
+		if(i > sizeLimit){
+			/*TODO: ERROR IF LENGTH TOO LONG*/
+			break;
+		}
+		++i;
+		++j;
+	}
+	(*inputString)[i] = '\0';
+	output[i + 1] = '\0';
+	return output;
+}
+
+char* readData(char** inputString, int size){
+	int i = 0;
+	int j = 0;
+	int buffSize = BUFFER_SIZE + 1;
+	while(!isalnum((*inputString)[i])){
+		(*inputString)[i] = '\0';
+		++i;
+	} 
+	char* output = calloc(buffSize, sizeof(char));
+	for(; j < size; ++j){
+		output[j] = (*inputString)[i];
+		++i;
+	}
+	output[j + 1] = '\0';
+	return output;
+}
+
+void printMsg(char* msg){
+	printf("[child %d] %s\n", getpid(), msg);
+}
+
+int checkFilename(char* filename){
+	/*check to make sure the given filename is valid*/
+	char* extension = ".txt";
+	char* readExtension = calloc(64, sizeof(char));
+	int i = 0;
+	while(filename[i] != '\0'){
+		++i;
+	}
+
+	i = i - 4;
+	int j = 0;
+	for(; j < 4; ++j){
+		readExtension[j] = filename[i + j];
+	}
+	if(strcmp(extension, readExtension) != 0){
+		return EXIT_FAILURE;
+	}
+	return EXIT_SUCCESS;
+}
+
+dirEntList* initDirEntListElement(dirent* ent, dirEntList* next, dirEntList* prev){
+	dirEntList* temp = malloc(sizeof(dirEntList));
+	temp->entry = ent;
+	temp->next = next;
+	temp->prev = prev;
+}
+
+char* listFiles(char* directory){
+	DIR* p = NULL;
+	dirEntList = initDirEntListElement(NULL, NULL, NULL);
+	struct dirent* entry = NULL;
+	p = opendir(directory);
+	if(p == NULL){
+		perror("OPENDIR");
+		return NULL;
+	}
+	while((entry = readdir(p))){
+		printf("%s\n", entry->d_name);
+	}
+
+	return NULL;
+}
+
+int writeDataToFile(char* directory, char* filename, char* data, int size){
+	DIR* p = NULL;
+	struct dirent* entry = NULL;
+
+	FILE* fp = NULL;
+	char path[256];
+
+	p = opendir(directory);
+	if(p == NULL){
+		perror("OPENDIR");
+		return -1;
+	}
+
+	/*check the filename*/
+	if(checkFilename(filename) == EXIT_FAILURE){
+		return -2;
+	}
+
+
+	/*Check if the file already exists*/
+	while((entry = readdir(p))){
+		if(strcmp(entry->d_name, filename) == 0)
+		{
+			return(-3);
+		}
+	}
+
+	/*Write to the file*/
+	sprintf(path, "%s%s", directory, filename);
+	fp = fopen(path, "w+");
+	int i = 0;
+	for(; i < size; ++i){
+		fputc(data[i], fp);
+	}
+	return EXIT_SUCCESS;
+}
 
 int clientConnection(void* data){
 	threadData* td = (threadData*)data;
+	char* buffer = calloc(BUFFER_SIZE, sizeof(char));
 
 	int n;
-	char buffer[BUFFER_SIZE];
+	int err = 0;
+
 	do{
 		n = recv(*(td->sock), buffer, BUFFER_SIZE, 0);
 
@@ -37,15 +187,56 @@ int clientConnection(void* data){
 		}
 		else{
 			buffer[n] = '\0';
-			
-			printf("CHILD %d: Rcvd message from %s: %s\n", 
-								getpid(), inet_ntoa((struct in_addr)td->client->sin_addr), buffer);
-			n = send(*(td->sock), "ACK\n", 4, 0);
-			fflush(NULL);
-			if(n != 4){
-				perror("send() failed");
+			/*parse command TODO: USE STRTOK?*/
+			char* command = parseInput(&buffer, 4);
+			/*printf("COMMAND %s\n", command);*/
+			if(strcmp(command, "STORE") == 0){
+				printf("Command: STORE\n");
+				char* filename = parseInput(&buffer, -1);
+				printf("Filename: %s\n", filename);
+				char* sizeC = parseInput(&buffer, -1);
+				int size = strtol(sizeC, NULL, 10);
+				printf("Size: %d\n", size);
+				char* data = calloc(size, sizeof(char));
+				data = readData(&buffer, size);
+				printf("Data: %s\n", data);
+				err = writeDataToFile(td->directory, filename, data, size);
+				if(err == -2){
+					n = send(*(td->sock), "ERROR INVALID FILENAME\n", 17, 0);
+					fflush(NULL);
+					if(n != 17){
+						perror("send() failed");
+					}
+				}
+				else if(err == -3){
+					n = send(*(td->sock), "ERROR FILE EXISTS\n", 18, 0);
+					fflush(NULL);
+					if(n != 18){
+						perror("send() failed");
+					}
+				}
+				else{
+					n = send(*(td->sock), "ACK\n", 4, 0);
+					fflush(NULL);
+					if(n != 4){
+						perror("send() failed");
+					}
+				}
 			}
-		}
+
+			else if(strcmp(command, "READ") == 0){
+				printf("Command: READ\n");
+			}
+			else if(strcmp(command, "LIST") == 0){
+				printf("Command: LIST\n");
+				listFiles(td->directory);
+
+			}
+			else{
+				printf("UNKNOWN COMMAND\n");
+			}
+
+		}/*if load*/
 	}while(n > 0);
 	printf("CHILD %d: Bye!\n", getpid());
 	close(*(td->sock));
@@ -53,6 +244,7 @@ int clientConnection(void* data){
 }
 
 int main(){
+	char* filepath = "./CrispyChickenStrips/";
 	int sd = socket(PF_INET, SOCK_STREAM, 0);
 	if(sd < 0){
 		perror("socket() failed");
@@ -63,13 +255,16 @@ int main(){
 
 	server.sin_family = PF_INET;
 	server.sin_addr.s_addr = INADDR_ANY;
+
+	/*//////////////////////////*/
 	unsigned short port = 8172;
+	/*//////////////////////////*/
 
 	server.sin_port = htons(port);
 	int len = sizeof(server);
 
 	if(bind(sd, (struct sockaddr*)&server, len) < 0){
-		perror("binde()fialed");
+		perror("bind()failed");
 		exit(EXIT_FAILURE);
 	}
 
@@ -80,10 +275,12 @@ int main(){
 	int fromlen = sizeof(client);
 
 	threadData data;
+	data.directory = filepath;
 	data.client = &client;
 
 	int pid;
 
+	mkdir(filepath, S_IRWXU | S_IRWXG | S_IROTH |S_IXOTH);
 	while(1){
 		int newsock = accept(sd, (struct sockaddr*)&client, (socklen_t*)&fromlen);
 		printf("Recieved incoming connection from: %s\n", inet_ntoa(client.sin_addr));
