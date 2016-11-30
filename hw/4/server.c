@@ -20,10 +20,9 @@ typedef struct threadData threadData;
 typedef struct dirEntList dirEntList;
 
 struct dirEntList{
-	dirent* entry;
-	dirEntList* prev;
+	struct dirent* entry;
 	dirEntList* next;
-}
+};
 
 struct threadData{
 	int* sock;
@@ -86,7 +85,7 @@ char* readData(char** inputString, int size){
 }
 
 void printMsg(char* msg){
-	printf("[child %d] %s\n", getpid(), msg);
+	printf("[child %d] %s", getpid(), msg);
 }
 
 int checkFilename(char* filename){
@@ -109,16 +108,48 @@ int checkFilename(char* filename){
 	return EXIT_SUCCESS;
 }
 
-dirEntList* initDirEntListElement(dirent* ent, dirEntList* next, dirEntList* prev){
+dirEntList* initDirEntListElement(struct dirent* ent, dirEntList* next){
 	dirEntList* temp = malloc(sizeof(dirEntList));
 	temp->entry = ent;
 	temp->next = next;
-	temp->prev = prev;
+	return temp;
 }
 
-char* listFiles(char* directory){
+int insertFile(dirEntList* root, struct dirent* entry){
+	dirEntList* tmp = root;
+	while(tmp->next != NULL){
+		if(strcmp(tmp->next->entry->d_name, entry->d_name) > 0){
+			tmp->next = initDirEntListElement(entry, tmp->next);
+			return EXIT_SUCCESS;
+		}
+		tmp = tmp->next;
+	}
+	tmp->next = initDirEntListElement(entry, NULL);
+	return EXIT_SUCCESS;
+}
+
+int sendMsg(threadData* td, char* msg){
+	int n;
+	int l = strlen(msg);
+	n = send(*(td->sock), msg, l, 0);
+	fflush(NULL);
+	if(n != l){
+		perror("send() failed");
+		return EXIT_FAILURE;
+	}
+	else{
+		char buf[2048];
+		sprintf(buf, "Sent %s", msg);
+		printMsg(buf);
+		return EXIT_SUCCESS;
+	}
+}
+
+char* listFiles(threadData* td){
+	char* directory = td->directory;
+	int numFiles = 0;
 	DIR* p = NULL;
-	dirEntList = initDirEntListElement(NULL, NULL, NULL);
+	dirEntList* fileList = initDirEntListElement(NULL, NULL);
 	struct dirent* entry = NULL;
 	p = opendir(directory);
 	if(p == NULL){
@@ -126,9 +157,21 @@ char* listFiles(char* directory){
 		return NULL;
 	}
 	while((entry = readdir(p))){
-		printf("%s\n", entry->d_name);
+		if(checkFilename(entry->d_name) == EXIT_SUCCESS){
+			insertFile(fileList, entry);
+			++numFiles;
+		}
 	}
-
+	dirEntList* tmp = fileList;
+	tmp = tmp->next;
+	char buf[1024] = {'\0'};
+	sprintf(buf, "%d", numFiles);
+	while(tmp != NULL){
+		sprintf(buf, "%s %s", buf, tmp->entry->d_name);
+		tmp = tmp->next;
+	}
+	sprintf(buf, "%s\n", buf);
+	sendMsg(td, buf);
 	return NULL;
 }
 
@@ -187,11 +230,18 @@ int clientConnection(void* data){
 		}
 		else{
 			buffer[n] = '\0';
+			char pBuf[BUFFER_SIZE] = {'\0'};
+			sprintf(pBuf, "Received %s", buffer);
+			printMsg(pBuf);
 			/*parse command TODO: USE STRTOK?*/
 			char* command = parseInput(&buffer, 4);
 			/*printf("COMMAND %s\n", command);*/
 			if(strcmp(command, "STORE") == 0){
-				printf("Command: STORE\n");
+				int i = 0;
+				for(; i < BUFFER_SIZE; ++i){
+					printf("%c", buffer[i]);
+				}
+				printf("\n");
 				char* filename = parseInput(&buffer, -1);
 				printf("Filename: %s\n", filename);
 				char* sizeC = parseInput(&buffer, -1);
@@ -225,18 +275,16 @@ int clientConnection(void* data){
 			}
 
 			else if(strcmp(command, "READ") == 0){
-				printf("Command: READ\n");
 			}
 			else if(strcmp(command, "LIST") == 0){
-				printf("Command: LIST\n");
-				listFiles(td->directory);
-
+				listFiles(td);
 			}
 			else{
 				printf("UNKNOWN COMMAND\n");
 			}
 
 		}/*if load*/
+		buffer = memset(buffer, '\0', BUFFER_SIZE);
 	}while(n > 0);
 	printf("CHILD %d: Bye!\n", getpid());
 	close(*(td->sock));
