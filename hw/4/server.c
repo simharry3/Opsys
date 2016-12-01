@@ -238,10 +238,23 @@ int writeDataToFile(char* directory, char* filename, char* data, int size){
 	for(; i < size; ++i){
 		fputc(data[i], fp);
 	}
+
+	char msg[1024] = {'\0'};
+	sprintf(msg, "Stored file \"%s\" (%d bytes)\n", filename, size);
+	printMsg(msg);
 	return EXIT_SUCCESS;
 }
 
 int readDataFromFile(char** output, threadData* td, char* filename, int offset, int size){
+	if(checkFilename(filename) == EXIT_FAILURE){
+		return -2;
+	}
+	while((entry = readdir(p))){
+		if(strcmp(entry->d_name, filename) == 0)
+		{
+			return(-3);
+		}
+	}
 	char* directory = td->directory;
 	(*output) = calloc(size, sizeof(char));
 	FILE* fp = NULL;
@@ -260,6 +273,72 @@ int readDataFromFile(char** output, threadData* td, char* filename, int offset, 
 	return EXIT_SUCCESS;
 }
 
+
+/*This function recieves data which could be larger than the buffer size*/
+int receiveData(threadData* td, char** output, char* input, int size){
+	(*output) = calloc(size, sizeof(char));
+	int i = 0;
+	while(input[i] != '\n'){
+		++i;
+		if(i > BUFFER_SIZE){
+			return EXIT_FAILURE;
+		}
+	}
+	int inputOffset = i + 1;
+	i = 0;
+	int j = 0;
+	for(; (j + inputOffset) < BUFFER_SIZE; ++j){
+		if(j == size){
+			return EXIT_SUCCESS;
+		}
+		(*output)[j] = input[j + inputOffset];
+	}
+
+
+	char* buffer = calloc(BUFFER_SIZE, sizeof(char));
+	int offset = j;
+	int n;
+	/*int err = 0;*/
+
+	do{
+		/*READ MESSAGE HERE*/
+		n = 0;
+		n = recv(*(td->sock), buffer, BUFFER_SIZE, 0);
+
+		if(n < 0){
+			perror("recv() failed");
+		}
+		else{
+			i = 0;
+			for(; i < n; ++i){
+				(*output)[offset+i] = buffer[i];
+			}
+			offset += n;
+		}
+	}while(n > 0);
+
+	/*End Reading Message*/
+	return EXIT_SUCCESS;
+
+}
+
+void checkError(threadData* td, int error){
+	switch(error){
+		case -1:
+
+			break;
+		case -2:
+			sendMsg(td, "ERROR INVALID FILENAME\n");
+			break;
+		case -3:
+			sendMsg(td, "ERROR FILE EXISTS\n");
+			break;
+		default:
+			sendMsg(td, "ERROR\n");
+	}
+}
+
+#if 1
 int clientConnection(void* data){
 	threadData* td = (threadData*)data;
 	char* buffer = calloc(BUFFER_SIZE, sizeof(char));
@@ -274,52 +353,36 @@ int clientConnection(void* data){
 			perror("recv() failed");
 		}
 		else if(n == 0){
-			printf("CHILD %d: Rcvd 0 from recv(); closing socket\n", getpid());
+			printMsg("Client disconnected\n");
 		}
 		else{
+			
+			char** out = splitData(&buffer);
+			char msg[1024];
+			sprintf(msg, "Received %s", out[0]);
+			printMsg(msg);
 
-			char** outs = splitData(&buffer);
-			char pBuf[BUFFER_SIZE] = {'\0'};
-			sprintf(pBuf, "Received %s", outs[0]);
-			printMsg(pBuf);
-			/*parse command TODO: USE STRTOK?*/
-			char* command = parseInput(&outs[0], 4);
-			/*printf("COMMAND %s\n", command);*/
+			char* command = parseInput(&buffer, 4);
 			if(strcmp(command, "STORE") == 0){
-				char* filename = parseInput(&outs[0], -1);
-				printf("Filename: %s\n", filename);
-				char* sizeC = parseInput(&outs[0], -1);
+				char* filename = parseInput(&buffer, -1);
+				char* sizeC = parseInput(&buffer, -1);
 				int size = strtol(sizeC, NULL, 10);
-				printf("Size: %d\n", size);
-				printf("Data: %s\n", outs[1]);
-				err = writeDataToFile(td->directory, filename, outs[1], size);
-				if(err == -2){
-					n = send(*(td->sock), "ERROR INVALID FILENAME\n", 17, 0);
-					fflush(NULL);
-					if(n != 17){
-						perror("send() failed");
-					}
-				}
-				else if(err == -3){
-					n = send(*(td->sock), "ERROR FILE EXISTS\n", 18, 0);
-					fflush(NULL);
-					if(n != 18){
-						perror("send() failed");
-					}
+				char* fullData = NULL;
+				receiveData(td, &fullData, buffer, size);
+
+				err = writeDataToFile(td->directory, filename, fullData, size);
+				if(err != EXIT_SUCCESS){
+					checkError(td, err);
 				}
 				else{
-					n = send(*(td->sock), "ACK\n", 4, 0);
-					fflush(NULL);
-					if(n != 4){
-						perror("send() failed");
-					}
+					sendMsg(td, "ACK\n");
 				}
 			}
 
 			else if(strcmp(command, "READ") == 0){
-				char* filename = parseInput(&outs[0], -1);
-				char* byteOC = parseInput(&outs[0], -1);
-				char* lengthC = parseInput(&outs[0], -1);
+				char* filename = parseInput(&buffer, -1);
+				char* byteOC = parseInput(&buffer, -1);
+				char* lengthC = parseInput(&buffer, -1);
 				int byteOffset = strtol(byteOC, NULL, 10);
 				int length = strtol(lengthC, NULL, 10);
 				printf("FILENAME: %s\n", filename);
@@ -327,7 +390,15 @@ int clientConnection(void* data){
 				printf("Length: %d\n", length);
 				char* output;
 				err = readDataFromFile(&output, td, filename, byteOffset, length);
-				printf("%s\n", output);
+				if(err != EXIT_SUCCESS){
+					checkError(td, err);
+				}
+				else{
+					char msg[1024] = {'\0'};
+					sprintf(msg, "ACK %d\n", length);
+					sendMsg(td, msg);
+					sendMsg(td, output);
+				}
 			}
 			else if(strcmp(command, "LIST") == 0){
 				listFiles(td);
@@ -339,12 +410,16 @@ int clientConnection(void* data){
 		}/*if load*/
 		buffer = memset(buffer, '\0', BUFFER_SIZE);
 	}while(n > 0);
-	printf("CHILD %d: Bye!\n", getpid());
 	close(*(td->sock));
 	exit(EXIT_SUCCESS);
 }
+#endif
 
-int main(){
+int main(int argc, char* argv[]){
+	if(argc < 2){
+		perror("Please enter a port number\n");
+		return EXIT_FAILURE;
+	}
 	char* filepath = "./CrispyChickenStrips/";
 	int sd = socket(PF_INET, SOCK_STREAM, 0);
 	if(sd < 0){
@@ -358,7 +433,7 @@ int main(){
 	server.sin_addr.s_addr = INADDR_ANY;
 
 	/*//////////////////////////*/
-	unsigned short port = 8173;
+	unsigned short port = strtol(argv[1], NULL, 10);
 	/*//////////////////////////*/
 
 	server.sin_port = htons(port);
