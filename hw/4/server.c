@@ -50,7 +50,7 @@ char* parseInput(char** inputString, int sizeLimit){
 	while(!isalnum((*inputString)[i])){
 		(*inputString)[i] = '\0';
 		++i;
-	} 
+	}
 	int j = 0;
 	while((*inputString)[i] != '\n' && (*inputString)[i] != ' '){
 		output[j] = (*inputString)[i];
@@ -62,25 +62,54 @@ char* parseInput(char** inputString, int sizeLimit){
 		++i;
 		++j;
 	}
-	(*inputString)[i] = '\0';
 	output[i + 1] = '\0';
 	return output;
 }
 
+char** splitData(char** inputString){
+	char** data = calloc(2, sizeof(char*));
+	data[0] = calloc(BUFFER_SIZE, sizeof(char));
+	data[1] = calloc(BUFFER_SIZE, sizeof(char));
+	int split = 0;
+	int i = 0;
+	for(; i < BUFFER_SIZE; ++i){
+		if(split == 0){
+			if(inputString[0][i] == '\n'){
+				split = i;
+			}
+			data[0][i] = (*inputString)[i];
+		}
+		else{
+			data[1][i - (split + 1)] = (*inputString)[i];
+		}
+	}
+
+	return data;
+}
+
 char* readData(char** inputString, int size){
 	int i = 0;
+	/*
+	for(; i < BUFFER_SIZE; ++i){
+		printf("%c", (*inputString)[i]);
+	}
+	printf("\n");
+	i = 0;
+	*/
 	int j = 0;
 	int buffSize = BUFFER_SIZE + 1;
-	while(!isalnum((*inputString)[i])){
+	while((*inputString)[i] != '\n'){
 		(*inputString)[i] = '\0';
 		++i;
 	} 
+
+	printf("%d\n", i);
 	char* output = calloc(buffSize, sizeof(char));
 	for(; j < size; ++j){
 		output[j] = (*inputString)[i];
 		++i;
 	}
-	output[j + 1] = '\0';
+	/*output[j + 1] = '\0';*/
 	return output;
 }
 
@@ -212,6 +241,25 @@ int writeDataToFile(char* directory, char* filename, char* data, int size){
 	return EXIT_SUCCESS;
 }
 
+int readDataFromFile(char** output, char* directory, char* filename, int offset, int size){
+	char* storage = calloc(size + 1, sizeof(char));
+	(*output) = calloc(size, sizeof(char));
+	FILE* fp = NULL;
+	char path[256];
+
+	sprintf(path, "%s%s", directory, filename);
+	fp = fopen(path, "r");
+	fgets(storage, size, fp);
+
+	int i = offset;
+	for(; i < size; ++i){
+		(*output)[i - offset] = storage[i];
+		printf("%c", (*output)[i-offset]);
+	}
+	printf("\n");
+	return EXIT_SUCCESS;
+}
+
 int clientConnection(void* data){
 	threadData* td = (threadData*)data;
 	char* buffer = calloc(BUFFER_SIZE, sizeof(char));
@@ -229,28 +277,22 @@ int clientConnection(void* data){
 			printf("CHILD %d: Rcvd 0 from recv(); closing socket\n", getpid());
 		}
 		else{
-			buffer[n] = '\0';
+
+			char** outs = splitData(&buffer);
 			char pBuf[BUFFER_SIZE] = {'\0'};
-			sprintf(pBuf, "Received %s", buffer);
+			sprintf(pBuf, "Received %s", outs[0]);
 			printMsg(pBuf);
 			/*parse command TODO: USE STRTOK?*/
-			char* command = parseInput(&buffer, 4);
+			char* command = parseInput(&outs[0], 4);
 			/*printf("COMMAND %s\n", command);*/
 			if(strcmp(command, "STORE") == 0){
-				int i = 0;
-				for(; i < BUFFER_SIZE; ++i){
-					printf("%c", buffer[i]);
-				}
-				printf("\n");
-				char* filename = parseInput(&buffer, -1);
+				char* filename = parseInput(&outs[0], -1);
 				printf("Filename: %s\n", filename);
-				char* sizeC = parseInput(&buffer, -1);
+				char* sizeC = parseInput(&outs[0], -1);
 				int size = strtol(sizeC, NULL, 10);
 				printf("Size: %d\n", size);
-				char* data = calloc(size, sizeof(char));
-				data = readData(&buffer, size);
-				printf("Data: %s\n", data);
-				err = writeDataToFile(td->directory, filename, data, size);
+				printf("Data: %s\n", outs[1]);
+				err = writeDataToFile(td->directory, filename, outs[1], size);
 				if(err == -2){
 					n = send(*(td->sock), "ERROR INVALID FILENAME\n", 17, 0);
 					fflush(NULL);
@@ -275,6 +317,16 @@ int clientConnection(void* data){
 			}
 
 			else if(strcmp(command, "READ") == 0){
+				char* filename = parseInput(&outs[0], -1);
+				char* byteOC = parseInput(&outs[0], -1);
+				char* lengthC = parseInput(&outs[0], -1);
+				int byteOffset = strtol(byteOC, NULL, 10);
+				int length = strtol(lengthC, NULL, 10);
+				printf("FILENAME: %s\n", filename);
+				printf("Byte Offset %d\n", byteOffset);
+				printf("Length: %d\n", length);
+				char* output;
+				err = readDataFromFile(&output, td->directory, filename, byteOffset, length);
 			}
 			else if(strcmp(command, "LIST") == 0){
 				listFiles(td);
@@ -305,7 +357,7 @@ int main(){
 	server.sin_addr.s_addr = INADDR_ANY;
 
 	/*//////////////////////////*/
-	unsigned short port = 8172;
+	unsigned short port = 8173;
 	/*//////////////////////////*/
 
 	server.sin_port = htons(port);
@@ -317,7 +369,6 @@ int main(){
 	}
 
 	listen(sd, 5);
-	printf("Started server; istening to port: %d\n", ntohs(server.sin_port));
 
 	struct sockaddr_in client;
 	int fromlen = sizeof(client);
