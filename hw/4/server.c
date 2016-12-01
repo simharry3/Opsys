@@ -241,22 +241,22 @@ int writeDataToFile(char* directory, char* filename, char* data, int size){
 	return EXIT_SUCCESS;
 }
 
-int readDataFromFile(char** output, char* directory, char* filename, int offset, int size){
-	char* storage = calloc(size + 1, sizeof(char));
+int readDataFromFile(char** output, threadData* td, char* filename, int offset, int size){
+	char* directory = td->directory;
 	(*output) = calloc(size, sizeof(char));
 	FILE* fp = NULL;
 	char path[256];
 
 	sprintf(path, "%s%s", directory, filename);
 	fp = fopen(path, "r");
-	fgets(storage, size, fp);
-
-	int i = offset;
-	for(; i < size; ++i){
-		(*output)[i - offset] = storage[i];
-		printf("%c", (*output)[i-offset]);
+	char c;
+	int i = 0;
+	while((c = fgetc(fp)) != EOF){
+		if(i >= offset && (i - offset) < size){
+			(*output)[i-offset] = c;
+		}
+		++i;
 	}
-	printf("\n");
 	return EXIT_SUCCESS;
 }
 
@@ -326,7 +326,8 @@ int clientConnection(void* data){
 				printf("Byte Offset %d\n", byteOffset);
 				printf("Length: %d\n", length);
 				char* output;
-				err = readDataFromFile(&output, td->directory, filename, byteOffset, length);
+				err = readDataFromFile(&output, td, filename, byteOffset, length);
+				printf("%s\n", output);
 			}
 			else if(strcmp(command, "LIST") == 0){
 				listFiles(td);
