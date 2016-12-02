@@ -15,6 +15,8 @@
 #include <arpa/inet.h>
 
 #define BUFFER_SIZE 1024
+#define EXT_SUCCESS 0
+#define EXT_FAILURE -1
 
 typedef struct threadData threadData;
 typedef struct dirEntList dirEntList;
@@ -47,7 +49,7 @@ char* parseInput(char** inputString, int sizeLimit){
 	}
 	char* output = calloc(buffSize, sizeof(char));
 	int i = 0;
-	while(!isalnum((*inputString)[i])){
+	while(!isalnum((*inputString)[i]) && (*inputString)[i] != '-'){
 		(*inputString)[i] = '\0';
 		++i;
 	}
@@ -66,6 +68,8 @@ char* parseInput(char** inputString, int sizeLimit){
 	return output;
 }
 
+/*This is a function to split the data from the control part of an input sequence. Used a little bit,
+but mostly for debugging*/
 char** splitData(char** inputString){
 	char** data = calloc(2, sizeof(char*));
 	data[0] = calloc(BUFFER_SIZE, sizeof(char));
@@ -87,39 +91,15 @@ char** splitData(char** inputString){
 	return data;
 }
 
-char* readData(char** inputString, int size){
-	int i = 0;
-	/*
-	for(; i < BUFFER_SIZE; ++i){
-		printf("%c", (*inputString)[i]);
-	}
-	printf("\n");
-	i = 0;
-	*/
-	int j = 0;
-	int buffSize = BUFFER_SIZE + 1;
-	while((*inputString)[i] != '\n'){
-		(*inputString)[i] = '\0';
-		++i;
-	} 
-
-	printf("%d\n", i);
-	char* output = calloc(buffSize, sizeof(char));
-	for(; j < size; ++j){
-		output[j] = (*inputString)[i];
-		++i;
-	}
-	/*output[j + 1] = '\0';*/
-	return output;
-}
-
+/*Prints a pretty message*/
 void printMsg(char* msg){
 	printf("[child %d] %s", getpid(), msg);
 }
 
+/*Checks to make sure the filename is valid*/
 int checkFilename(char* filename){
-	/*check to make sure the given filename is valid*/
-	char* extension = ".txt";
+	char* extensions[4] = {".txt", ".bin", ".jpg", ".png"};
+	int numExt = 4;
 	char* readExtension = calloc(64, sizeof(char));
 	int i = 0;
 	while(filename[i] != '\0'){
@@ -131,12 +111,21 @@ int checkFilename(char* filename){
 	for(; j < 4; ++j){
 		readExtension[j] = filename[i + j];
 	}
-	if(strcmp(extension, readExtension) != 0){
-		return EXIT_FAILURE;
+	i = 0;
+	for(; i < numExt; ++i){
+		if(strcmp(extensions[i], readExtension) == 0){
+			if (i < 1){
+				return 1;
+			}
+			else{
+				return 2;
+			}
+		}
 	}
-	return EXIT_SUCCESS;
+	return EXT_FAILURE;
 }
 
+/*Initializes the Directory list to sort the files*/
 dirEntList* initDirEntListElement(struct dirent* ent, dirEntList* next){
 	dirEntList* temp = malloc(sizeof(dirEntList));
 	temp->entry = ent;
@@ -144,36 +133,44 @@ dirEntList* initDirEntListElement(struct dirent* ent, dirEntList* next){
 	return temp;
 }
 
+/*Inserts a file into the directory list*/
 int insertFile(dirEntList* root, struct dirent* entry){
 	dirEntList* tmp = root;
 	while(tmp->next != NULL){
 		if(strcmp(tmp->next->entry->d_name, entry->d_name) > 0){
 			tmp->next = initDirEntListElement(entry, tmp->next);
-			return EXIT_SUCCESS;
+			return EXT_SUCCESS;
 		}
 		tmp = tmp->next;
 	}
 	tmp->next = initDirEntListElement(entry, NULL);
-	return EXIT_SUCCESS;
+	return EXT_SUCCESS;
 }
 
-int sendMsg(threadData* td, char* msg){
+/*Sends a pretty message to the client and prints to stdout*/
+int sendMsg(threadData* td, char* msg, int data){
 	int n;
 	int l = strlen(msg);
 	n = send(*(td->sock), msg, l, 0);
 	fflush(NULL);
 	if(n != l){
 		perror("send() failed");
-		return EXIT_FAILURE;
+		return EXT_FAILURE;
 	}
 	else{
 		char buf[2048];
-		sprintf(buf, "Sent %s", msg);
+		if(data == 0){
+			sprintf(buf, "Sent %s", msg);
+		}
+		else{
+			sprintf(buf, "Sent %s\n", msg);
+		}
 		printMsg(buf);
-		return EXIT_SUCCESS;
+		return EXT_SUCCESS;
 	}
 }
 
+/*Used by the LIST command, this sorts and lists all files*/
 char* listFiles(threadData* td){
 	char* directory = td->directory;
 	int numFiles = 0;
@@ -186,7 +183,7 @@ char* listFiles(threadData* td){
 		return NULL;
 	}
 	while((entry = readdir(p))){
-		if(checkFilename(entry->d_name) == EXIT_SUCCESS){
+		if(checkFilename(entry->d_name) != EXT_FAILURE){
 			insertFile(fileList, entry);
 			++numFiles;
 		}
@@ -200,10 +197,12 @@ char* listFiles(threadData* td){
 		tmp = tmp->next;
 	}
 	sprintf(buf, "%s\n", buf);
-	sendMsg(td, buf);
+	sendMsg(td, buf, 0);
 	return NULL;
 }
 
+
+/*Used by the STORE command, this stores a file*/
 int writeDataToFile(char* directory, char* filename, char* data, int size){
 	DIR* p = NULL;
 	struct dirent* entry = NULL;
@@ -218,9 +217,11 @@ int writeDataToFile(char* directory, char* filename, char* data, int size){
 	}
 
 	/*check the filename*/
-	if(checkFilename(filename) == EXIT_FAILURE){
-		return -2;
+	int isText;
+	if((isText = checkFilename(filename)) == EXT_FAILURE){
+		return -1;
 	}
+
 
 
 	/*Check if the file already exists*/
@@ -233,44 +234,64 @@ int writeDataToFile(char* directory, char* filename, char* data, int size){
 
 	/*Write to the file*/
 	sprintf(path, "%s%s", directory, filename);
-	fp = fopen(path, "w+");
-	int i = 0;
-	for(; i < size; ++i){
-		fputc(data[i], fp);
+
+	if(isText == 1){
+		fp = fopen(path, "w");
 	}
+	else if(isText == 2){
+		fp = fopen(path, "wb");
+	}
+
+	fwrite(data, sizeof(char), size, fp);
 
 	char msg[1024] = {'\0'};
 	sprintf(msg, "Stored file \"%s\" (%d bytes)\n", filename, size);
 	printMsg(msg);
-	return EXIT_SUCCESS;
+	return EXT_SUCCESS;
 }
 
+/*Used by READ, this reads data from a file*/
 int readDataFromFile(char** output, threadData* td, char* filename, int offset, int size){
-	if(checkFilename(filename) == EXIT_FAILURE){
+	int isText;
+	if((isText = checkFilename(filename)) == EXT_FAILURE){
 		return -2;
+	}
+	char* directory = td->directory;
+	(*output) = calloc(size, sizeof(char));
+	DIR* p = NULL;
+	struct dirent* entry = NULL;
+	FILE* fp = NULL;
+	char path[256];
+
+
+	int foundFile = 0;
+	p = opendir(directory);
+	if(p == NULL){
+		perror("OPENDIR");
+		return -1;
 	}
 	while((entry = readdir(p))){
 		if(strcmp(entry->d_name, filename) == 0)
 		{
-			return(-3);
+			foundFile = 1;
 		}
 	}
-	char* directory = td->directory;
-	(*output) = calloc(size, sizeof(char));
-	FILE* fp = NULL;
-	char path[256];
+	if(foundFile == 0){
+		return(-4);
+	}
 
 	sprintf(path, "%s%s", directory, filename);
-	fp = fopen(path, "r");
-	char c;
-	int i = 0;
-	while((c = fgetc(fp)) != EOF){
-		if(i >= offset && (i - offset) < size){
-			(*output)[i-offset] = c;
-		}
-		++i;
+	if(isText == 1){
+		fp = fopen(path, "r");
 	}
-	return EXIT_SUCCESS;
+	else if(isText == 2){
+		printf("OPENING AS BINARY\n");
+		fp = fopen(path, "rb");
+	}
+
+	fseek(fp, offset, SEEK_SET);
+	fread((*output), sizeof(char), size, fp);
+	return EXT_SUCCESS;
 }
 
 
@@ -281,7 +302,7 @@ int receiveData(threadData* td, char** output, char* input, int size){
 	while(input[i] != '\n'){
 		++i;
 		if(i > BUFFER_SIZE){
-			return EXIT_FAILURE;
+			return EXT_FAILURE;
 		}
 	}
 	int inputOffset = i + 1;
@@ -289,7 +310,7 @@ int receiveData(threadData* td, char** output, char* input, int size){
 	int j = 0;
 	for(; (j + inputOffset) < BUFFER_SIZE; ++j){
 		if(j == size){
-			return EXIT_SUCCESS;
+			return EXT_SUCCESS;
 		}
 		(*output)[j] = input[j + inputOffset];
 	}
@@ -318,27 +339,32 @@ int receiveData(threadData* td, char** output, char* input, int size){
 	}while(n > 0);
 
 	/*End Reading Message*/
-	return EXIT_SUCCESS;
+	return EXT_SUCCESS;
 
 }
 
+/*Standard error messages go here for error catching*/
 void checkError(threadData* td, int error){
 	switch(error){
 		case -1:
-
+			sendMsg(td, "ERROR INVALID REQUEST\n", 0);
 			break;
 		case -2:
-			sendMsg(td, "ERROR INVALID FILENAME\n");
+			sendMsg(td, "ERROR INVALID FILENAME\n", 0);
 			break;
 		case -3:
-			sendMsg(td, "ERROR FILE EXISTS\n");
+			sendMsg(td, "ERROR FILE EXISTS\n", 0);
+			break;
+		case -4:
+			sendMsg(td, "ERROR NO SUCH FILE\n", 0);
 			break;
 		default:
-			sendMsg(td, "ERROR\n");
+			sendMsg(td, "ERROR\n", 0);
 	}
 }
 
 #if 1
+/*The main child process for client connections*/
 int clientConnection(void* data){
 	threadData* td = (threadData*)data;
 	char* buffer = calloc(BUFFER_SIZE, sizeof(char));
@@ -367,15 +393,20 @@ int clientConnection(void* data){
 				char* filename = parseInput(&buffer, -1);
 				char* sizeC = parseInput(&buffer, -1);
 				int size = strtol(sizeC, NULL, 10);
-				char* fullData = NULL;
-				receiveData(td, &fullData, buffer, size);
-
-				err = writeDataToFile(td->directory, filename, fullData, size);
-				if(err != EXIT_SUCCESS){
-					checkError(td, err);
+				if(size < 1){
+					checkError(td, -1);
 				}
 				else{
-					sendMsg(td, "ACK\n");
+					char* fullData = NULL;
+					receiveData(td, &fullData, buffer, size);
+
+					err = writeDataToFile(td->directory, filename, fullData, size);
+					if(err != EXT_SUCCESS){
+						checkError(td, err);
+					}
+					else{
+						sendMsg(td, "ACK\n", 0);
+					}
 				}
 			}
 
@@ -385,46 +416,49 @@ int clientConnection(void* data){
 				char* lengthC = parseInput(&buffer, -1);
 				int byteOffset = strtol(byteOC, NULL, 10);
 				int length = strtol(lengthC, NULL, 10);
-				printf("FILENAME: %s\n", filename);
-				printf("Byte Offset %d\n", byteOffset);
-				printf("Length: %d\n", length);
 				char* output;
-				err = readDataFromFile(&output, td, filename, byteOffset, length);
-				if(err != EXIT_SUCCESS){
-					checkError(td, err);
+				if(byteOffset < 0 || length < 1){
+					sendMsg(td, "ERROR INVALID BYTE RANGE\n", 0);
 				}
 				else{
-					char msg[1024] = {'\0'};
-					sprintf(msg, "ACK %d\n", length);
-					sendMsg(td, msg);
-					sendMsg(td, output);
+					err = readDataFromFile(&output, td, filename, byteOffset, length);
+					if(err != EXT_SUCCESS){
+						checkError(td, err);
+					}
+					else{
+						char msg[1024] = {'\0'};
+						sprintf(msg, "ACK %d\n", length);
+						sendMsg(td, msg, 0);
+						sendMsg(td, output, 1);
+					}
 				}
 			}
 			else if(strcmp(command, "LIST") == 0){
 				listFiles(td);
 			}
 			else{
-				printf("UNKNOWN COMMAND\n");
+				sendMsg(td, "ERROR UNKNOWN COMMAND\n", 0);
 			}
 
 		}/*if load*/
 		buffer = memset(buffer, '\0', BUFFER_SIZE);
 	}while(n > 0);
 	close(*(td->sock));
-	exit(EXIT_SUCCESS);
+	exit(EXT_SUCCESS);
 }
 #endif
 
+/*Main function, handles threads and program shutdown*/
 int main(int argc, char* argv[]){
 	if(argc < 2){
 		perror("Please enter a port number\n");
-		return EXIT_FAILURE;
+		return EXT_FAILURE;
 	}
-	char* filepath = "./CrispyChickenStrips/";
+	char* filepath = "./MazdaMX5Miata/";
 	int sd = socket(PF_INET, SOCK_STREAM, 0);
 	if(sd < 0){
 		perror("socket() failed");
-		exit(EXIT_FAILURE);
+		exit(EXT_FAILURE);
 	}
 
 	struct sockaddr_in server;
@@ -441,7 +475,7 @@ int main(int argc, char* argv[]){
 
 	if(bind(sd, (struct sockaddr*)&server, len) < 0){
 		perror("bind()failed");
-		exit(EXIT_FAILURE);
+		exit(EXT_FAILURE);
 	}
 
 	listen(sd, 5);
@@ -465,7 +499,7 @@ int main(int argc, char* argv[]){
 		pid = fork();
 		if(pid < 0){
 			perror("fork() failed");
-			return EXIT_FAILURE;
+			return EXT_FAILURE;
 		}
 		else if(pid == 0){
 			#if 0
@@ -481,5 +515,5 @@ int main(int argc, char* argv[]){
 	}
 
 	close(sd);
-	return EXIT_SUCCESS;
+	return EXT_SUCCESS;
 }
