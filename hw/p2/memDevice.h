@@ -39,7 +39,7 @@ private:
 class memDevice{
 
 public:
-	memDevice(int s, int mmt, string algorithm, int fpl);
+	memDevice(int s, int mmt, string style, string algorithm, int fpl);
 	//SETTERS:
 	void setSize(int s){this->size = s;}
 	void addReadyProcess(process* p){readyProcesses.push_back(p);}
@@ -49,6 +49,7 @@ public:
 	int getSize(){return this->size;}
 	int getDeviceCycle(){return this->currentCycle;}
 	string getAlgorithm(){return this->algorithm;}
+	bool getStatus(){return this->isFinished;}
 	//HELPERS:
 	int addEntry(char uP, int start, int size, int d);
 	int insertMemory(process* uP);
@@ -67,15 +68,17 @@ public:
 	void checkReady();
 	void checkRunning();
 	void cycleMemDevice();
-	bool checkFinished();
+	void checkFinished();
 
 private:
 	int size;
 	int memMoveTime;
 	int currentCycle;
 	int fpl;
+	bool isFinished;
 	list<dataEntry> lastPlaced;
 	string algorithm;
+	string style;
 
 	vector<dataEntry> freeSpace;
 	vector<dataEntry> data;

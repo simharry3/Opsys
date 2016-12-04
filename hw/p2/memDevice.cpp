@@ -17,7 +17,7 @@ void dataEntry::shiftToLocation(int loc){
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 //MEM DEVICE:
-memDevice::memDevice(int s, int mmt, string algo, int fpl){
+memDevice::memDevice(int s, int mmt, string style, string algo, int fpl){
 	this->size = s;
 	this->memMoveTime = mmt;
 	this->algorithm = algo;
@@ -25,8 +25,9 @@ memDevice::memDevice(int s, int mmt, string algo, int fpl){
 	this->fpl = fpl;
 	this->lastPlaced.clear();
 	this->isFinished = false;
+	this->style = style;
 	stringstream msg;
-	msg << "Simulator started (" << algo << ")\n";
+	msg << "Simulator started (" << style << " -- " << algo << ")\n";
 	printMsg(msg.str());
 }
 
@@ -70,6 +71,14 @@ int memDevice::defrag(){
 			defragTime += d->getEntrySize() * this->memMoveTime;
 			d->shiftToLocation(prev->getEnd() + 1);
 		}
+	}
+
+	for(list<process*>::iterator i = this->runningProcesses.begin(); i != this->runningProcesses.end(); ++i){
+		(*i)->delayNextUsageTime(defragTime);
+		(*i)->delayArrivalTimeRunning(defragTime);
+	}
+	for(list<process*>::iterator i = this->waitingProcesses.begin(); i != this->waitingProcesses.end(); ++i){
+		(*i)->delayArrivalTime(defragTime);
 	}
 	updateFreeSpace();
 	return defragTime;
@@ -334,14 +343,28 @@ void memDevice::checkWaiting(){
 		}
 	}
 }
-bool memDevice::checkFinished(){
-	for(list<process*>::iterator i = waitingProcesses.begin()){
+
+void memDevice::checkFinished(){
+	if(!runningProcesses.empty()){
+		for(list<process*>::iterator i = runningProcesses.begin(); i != runningProcesses.end(); ++i){
+			//cout << (*i)->getProcessID() << endl;
+		}
+		this->isFinished = false;
+		return;
+	}
+	for(list<process*>::iterator i = waitingProcesses.begin(); i != waitingProcesses.end(); ++i){
 		if(!(*i)->checkEmpty()){
-			return false;
+			//cout << (*i)->getProcessID() << ": " << (*i)->getNextArrivalTime() << endl;
+			this->isFinished = false;
+			return;
 		}
 	}
-	return true;
+	stringstream msg;
+	msg << "Simulator ended (" << this->style << " -- " << this->algorithm << ")\n";
+	printMsg(msg.str());
+	this->isFinished = true;
 }
+
 void memDevice::printMsg(string msg){
 	cout << "time " << currentCycle << "ms: " << msg;
 }
@@ -370,6 +393,7 @@ void memDevice::cycleMemDevice(){
 	updateFreeSpace();
 	checkRunning();
 	updateFreeSpace();
+	checkFinished();
 
 	++currentCycle;
 
