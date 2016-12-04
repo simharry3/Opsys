@@ -24,6 +24,7 @@ memDevice::memDevice(int s, int mmt, string algo, int fpl){
 	this->currentCycle = 0;
 	this->fpl = fpl;
 	this->lastPlaced.clear();
+	this->isFinished = false;
 	stringstream msg;
 	msg << "Simulator started (" << algo << ")\n";
 	printMsg(msg.str());
@@ -332,6 +333,14 @@ void memDevice::checkWaiting(){
 			++i;
 		}
 	}
+}
+bool memDevice::checkFinished(){
+	for(list<process*>::iterator i = waitingProcesses.begin()){
+		if(!(*i)->checkEmpty()){
+			return false;
+		}
+	}
+	return true;
 }
 void memDevice::printMsg(string msg){
 	cout << "time " << currentCycle << "ms: " << msg;

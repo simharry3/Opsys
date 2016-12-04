@@ -67,6 +67,7 @@ public:
 	void checkReady();
 	void checkRunning();
 	void cycleMemDevice();
+	bool checkFinished();
 
 private:
 	int size;
