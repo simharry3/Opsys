@@ -1,0 +1,29 @@
+MAKE PAGE TABLE map<process*, list<dataEntry> >
+	-Can still sort
+	-Never need to access specific value, always just iterate through
+	-Insertion and Deletion will not invalidate iterators.
+
+
+STRATEGY FOR MEM INSERT:
+
+
+   AAA
+#########
+123456789
+
+Add pageTable entry:
+
+pageTable[A] 
+		-Begin
+		-Size
+		-etc.
+
+Sort pageTable[freeMemProcess] by location
+Search pageTable[freeMemProcess] for free space that intersects with inserted process
+last inserted memory location = pageTable[a].end()->getStart
+	i.e. vector<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); ...++i...
+			if(i->getStart() =< pageTable[A].end()->getStart() && pageTable[A].end()->getEnd() =< i->getEnd())
+once we find a free block that intersects with our inserted program:
+	-Insert program at beginning of free space block
+	-Create / push_back new free space block from end of inserted program to end of old free space block
+	-Erase old free space block
