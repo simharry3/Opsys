@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <fstream>
 #include "process.h"
+#include <utility>
+#include <map>
 
 using namespace std;
 
@@ -52,7 +54,10 @@ public:
 	bool getStatus(){return this->isFinished;}
 	//HELPERS:
 	int addEntry(char uP, int start, int size, int d);
+	int addTableEntry(process* uP, int start, int size, int d);
 	int insertMemory(process* uP);
+	int insertMemoryContiguous(process* uP);
+	int insertMemoryNonContiguous(process* uP);
 	int removeMemory(process* uP);
 	int defrag();
 	void printMem(int fpl);
@@ -62,6 +67,7 @@ public:
 	void printFreeSpace(int fpl);
 	void printMsg(string msg);
 	int totalSize(vector<dataEntry>* dat);
+
 
 	//Possibly move to PROCESSOR class:
 	void checkWaiting();
@@ -80,11 +86,15 @@ private:
 	string algorithm;
 	string style;
 
+
+
 	vector<dataEntry> freeSpace;
 	vector<dataEntry> data;
+	map<process*, vector<dataEntry> > pageTable;
 	list<process*> runningProcesses;
 	list<process*> readyProcesses;
 	list<process*> waitingProcesses;
+	process* freeMemProcess;
 };
 
 #endif

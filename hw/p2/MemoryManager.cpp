@@ -24,6 +24,13 @@ int main(int argc, char* argv[]){
 	while(!bank3.getStatus()){
 		bank3.cycleMemDevice();
 	}
+
+	memDevice bank4(256, 1, "Non-Contiguous", "Next-Fit", 32);
+	bank4.loadProcesses(argv[1]);
+	bank4.updateFreeSpace();
+	while(!bank4.getStatus()){
+		bank4.cycleMemDevice();
+	}
 	// int n = 560;
 	// for(int i = 0; i < n; ++i){
 	// 	bank1.cycleMemDevice();
