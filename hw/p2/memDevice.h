@@ -60,13 +60,13 @@ public:
 	int insertMemoryNonContiguous(process* uP);
 	int removeMemory(process* uP);
 	int defrag();
-	void printMem(int fpl);
+	void printMem();
 	void loadProcesses(char* filename);
 	void printProcesses();
 	void updateFreeSpace();
-	void printFreeSpace(int fpl);
+	void printFreeSpace();
 	void printMsg(string msg);
-	int totalSize(vector<dataEntry>* dat);
+	int totalSize(process* uP);
 
 
 	//Possibly move to PROCESSOR class:
@@ -90,7 +90,7 @@ private:
 
 	vector<dataEntry> freeSpace;
 	vector<dataEntry> data;
-	map<process*, vector<dataEntry> > pageTable;
+	map<process*, list<dataEntry> > pageTable;
 	list<process*> runningProcesses;
 	list<process*> readyProcesses;
 	list<process*> waitingProcesses;

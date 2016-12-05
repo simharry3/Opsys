@@ -27,7 +27,7 @@ memDevice::memDevice(int s, int mmt, string style, string algo, int fpl){
 	this->isFinished = false;
 	this->style = style;
 	this->freeMemProcess = new process(". -1 0/0");
-	this->pageTable[freeMemProcess];
+	updateFreeSpace();
 	stringstream msg;
 	msg << "Simulator started (" << style << " -- " << algo << ")\n";
 	printMsg(msg.str());
@@ -58,7 +58,7 @@ int memDevice::addTableEntry(process* uP, int start, int size, int d){
 		this->freeSpace.push_back(temp);
 	}
 	else{
-		map<process*, vector<dataEntry> >::iterator i = pageTable.find(uP);
+		map<process*, list<dataEntry> >::iterator i = pageTable.find(uP);
 		this->data.push_back(temp);
 		pageTable[uP].push_back(temp);
 		this->lastPlaced.clear();
@@ -74,27 +74,43 @@ bool sortByLocation(dataEntry a, dataEntry b){
 }
 
 
+bool sortByLocationPointer(dataEntry* a, dataEntry* b){
+	return a->getEnd() < b->getStart();
+}
+
+
 int memDevice::defrag(){
 	int defragTime = 0;
 	//Sort data vector by start position in memory
-	sort(this->data.begin(), this->data.end(), sortByLocation);
+	list<dataEntry*> sortList;
+	for(map<process*, list<dataEntry> >::iterator i = pageTable.begin(); i != pageTable.end(); ++i){
+		if(i->first != freeMemProcess){
+			for(list<dataEntry>::iterator e = i->second.begin(); e != i->second.end(); ++e){
+				sortList.push_back(&(*e));
+			}
+		}
+	}
+	sortList.sort(sortByLocationPointer);
 
 	//For each element, shift backwards as far as possible:
-	for(vector<dataEntry>::iterator d = this->data.begin(); d != this->data.end(); ++d){
-		if(d == this->data.begin()){
-			defragTime += d->getEntrySize() * this->memMoveTime;//(d->getStart()) * this->memMoveTime;
-			d->shiftToLocation(0);
+	for(list<dataEntry*>::iterator d = sortList.begin(); d != sortList.end(); ++d){
+		if(d == sortList.begin()){
+			defragTime += (*d)->getEntrySize() * this->memMoveTime;//(d->getStart()) * this->memMoveTime;
+			(*d)->shiftToLocation(0);
 		}
 		else{
-			vector<dataEntry>::iterator prev = d-1;
-			defragTime += d->getEntrySize() * this->memMoveTime;
-			d->shiftToLocation(prev->getEnd() + 1);
+			list<dataEntry*>::iterator prev = d;
+			--prev;
+			defragTime += (*d)->getEntrySize() * this->memMoveTime;
+			(*d)->shiftToLocation((*prev)->getEnd() + 1);
 		}
 	}
 
-	for(list<process*>::iterator i = this->runningProcesses.begin(); i != this->runningProcesses.end(); ++i){
-		(*i)->delayNextUsageTime(defragTime);
-		(*i)->delayArrivalTimeRunning(defragTime);
+	for(map<process*, list<dataEntry> >::iterator i = pageTable.begin(); i != pageTable.end(); ++i){
+		if(i->first != freeMemProcess){
+			i->first->delayNextUsageTime(defragTime);
+			i->first->delayArrivalTimeRunning(defragTime);
+		}
 	}
 	for(list<process*>::iterator i = this->waitingProcesses.begin(); i != this->waitingProcesses.end(); ++i){
 		(*i)->delayArrivalTime(defragTime);
@@ -108,21 +124,16 @@ int memDevice::defrag(){
 
 
 //Prints the memory based on the number of frames per line:
-void memDevice::printMem(int fpl){
+void memDevice::printMem(){
 	cout << string(fpl, '=') << endl;
 	for(int j = 0; j < (size/fpl); ++j){
 		for(int i = 0; i < fpl; ++i){
-			bool inSlot = false;
-			for(map<process*, vector<dataEntry> >::iterator d = this->pageTable.begin(); d != this->pageTable.end(); ++d){
-				for(vector<dataEntry>::iterator e = d->second.begin(); e != d->second.end(); ++e){
+			for(map<process*, list<dataEntry> >::iterator d = this->pageTable.begin(); d != this->pageTable.end(); ++d){
+				for(list<dataEntry>::iterator e = d->second.begin(); e != d->second.end(); ++e){
 					if(e->getStart() <= ((j*fpl) + i) && e->getEnd() >= ((j*fpl) + i)){
 						cout << e->getUserProcess();
-						inSlot = true;
 					}
 				}
-			}
-			if(!inSlot){
-				cout << '.';
 			}
 		}
 		cout << endl;
@@ -130,20 +141,20 @@ void memDevice::printMem(int fpl){
 	cout << string(fpl, '=') << endl;
 }
 
-void memDevice::printFreeSpace(int fpl){
+void memDevice::printFreeSpace(){
 	cout << string(fpl, '=') << endl;
 	for(int j = 0; j < (size/fpl); ++j){
 		for(int i = 0; i < fpl; ++i){
-			bool inSlot = false;
-			for(vector<dataEntry>::iterator d = this->freeSpace.begin(); d != this->freeSpace.end(); ++d){
-				if(d->getStart() <= ((j*fpl) + i) && d->getEnd() >= ((j*fpl) + i)){
-					cout << d->getUserProcess();
-					inSlot = true;
+			bool printed = false;
+			for(list<dataEntry>::iterator e = pageTable[freeMemProcess].begin(); e != pageTable[freeMemProcess].end(); ++e){
+				if(e->getStart() <= ((j*fpl) + i) && e->getEnd() >= ((j*fpl) + i)){
+					printed = true;
+					cout << e->getUserProcess();
 				}
 			}
-			// if(!inSlot){
-			// 	cout << '.';
-			// }
+			if(!printed){
+				cout << '#';
+			}
 		}
 		cout << endl;
 	}
@@ -164,26 +175,27 @@ void memDevice::loadProcesses(char* filename){
 	data.close();
 }
 
-int memDevice::totalSize(vector<dataEntry>* dat){
+int memDevice::totalSize(process* uP){
 	int size = 0;
-	if(dat->empty()){
+	if(pageTable[uP].empty()){
 		return 0;
 	}
 	else{
-		for(vector<dataEntry>::iterator i = dat->begin(); i != dat->end(); ++i){
+		for(list<dataEntry>::iterator i = pageTable[uP].begin(); i != pageTable[uP].end(); ++i){
 			size += i->getEntrySize();
 		}
 	}
 	return size;
 }
 
+
+
 int memDevice::insertMemoryContiguous(process* uP){
 	bool placed = false;
 	if(this->getAlgorithm() == "First-Fit"){
-		for(vector<dataEntry>::iterator i = freeSpace.begin(); i != freeSpace.end(); ++i){
+		for(list<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); i != pageTable[freeMemProcess].end(); ++i){
 			if(uP->getMemSize() < i->getEntrySize()){
-				addEntry(uP->getProcessID(), i->getStart(), uP->getMemSize(), uP->getNextUsageTime());
-				freeSpace.erase(i);
+				addTableEntry(uP, i->getStart(), uP->getMemSize(), uP->getNextUsageTime());
 				updateFreeSpace();
 				placed = true;
 				break;
@@ -196,28 +208,26 @@ int memDevice::insertMemoryContiguous(process* uP){
 		if(lastPlaced.size() != 0){
 			freeSpaceScanStart = lastPlaced.front().getEnd() + 1;
 		}
-		sort(freeSpace.begin(), freeSpace.end(), sortByLocation);
-		vector<dataEntry>::iterator preSplit = freeSpace.end();
-		for(vector<dataEntry>::iterator i = freeSpace.begin(); i != freeSpace.end(); ++i){
+		pageTable[freeMemProcess].sort(sortByLocation);
+		list<dataEntry>::iterator preSplit = pageTable[freeMemProcess].end();
+		for(list<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); i != pageTable[freeMemProcess].end(); ++i){
 			//If we are before the split, we just store the empty slot we find first:
 			if(i->getStart() - freeSpaceScanStart < 0){ 
-				if(uP->getMemSize() <= i->getEntrySize() && preSplit == freeSpace.end()){
+				if(uP->getMemSize() <= i->getEntrySize() && preSplit == pageTable[freeMemProcess].end()){
 					preSplit = i;
 				}
 			}
 			else{ //If we are after the split, we use the find first algorithm:
 				if(uP->getMemSize() < i->getEntrySize()){
-					addEntry(uP->getProcessID(), i->getStart(), uP->getMemSize(), uP->getNextUsageTime());
-					freeSpace.erase(i);
+					addTableEntry(uP, i->getStart(), uP->getMemSize(), uP->getNextUsageTime());
 					updateFreeSpace();
 					placed = true;
 					break;
 				}
 			}
 		}
-		if(placed == false && preSplit != freeSpace.end()){
-			addEntry(uP->getProcessID(), preSplit->getStart(), uP->getMemSize(), uP->getNextUsageTime());
-			freeSpace.erase(preSplit);
+		if(placed == false && preSplit != pageTable[freeMemProcess].end()){
+			addTableEntry(uP, preSplit->getStart(), uP->getMemSize(), uP->getNextUsageTime());
 			updateFreeSpace();
 			placed = true;
 		}
@@ -225,15 +235,15 @@ int memDevice::insertMemoryContiguous(process* uP){
 
 	else if(this->getAlgorithm() == "Best-Fit"){
 		int sizeMeter = this->getSize() + 1;
-		vector<dataEntry>::iterator t = freeSpace.end();
-		for(vector<dataEntry>::iterator i = freeSpace.begin(); i != freeSpace.end(); ++i){
+		list<dataEntry>::iterator t = pageTable[freeMemProcess].end();
+		for(list<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); i != pageTable[freeMemProcess].end(); ++i){
 			if(i->getEntrySize() < sizeMeter && uP->getMemSize() <= i->getEntrySize()){
 				t = i;
 				sizeMeter = t->getEntrySize();
 			}
 		}
-		if(t != freeSpace.end()){
-			addEntry(uP->getProcessID(), t->getStart(), uP->getMemSize(), uP->getNextUsageTime());
+		if(t != pageTable[freeMemProcess].end()){
+			addTableEntry(uP, t->getStart(), uP->getMemSize(), uP->getNextUsageTime());
 			//cout << t->getStart() <<"\n";
 			updateFreeSpace();
 			//printFreeSpace(32);
@@ -243,15 +253,15 @@ int memDevice::insertMemoryContiguous(process* uP){
 
 	else if(this->getAlgorithm() == "Worst-Fit"){
 		int sizeMeter = 0;
-		vector<dataEntry>::iterator t = freeSpace.end();
-		for(vector<dataEntry>::iterator i = freeSpace.begin(); i != freeSpace.end(); ++i){
+		list<dataEntry>::iterator t = pageTable[freeMemProcess].end();
+		for(list<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); i != pageTable[freeMemProcess].end(); ++i){
 			if(i->getEntrySize() > sizeMeter && uP->getMemSize() <= i->getEntrySize()){
 				t = i;
 				sizeMeter = t->getEntrySize();
 			}
 		}
-		if(t != freeSpace.end()){
-			addEntry(uP->getProcessID(), t->getStart(), uP->getMemSize(), uP->getNextUsageTime());
+		if(t != pageTable[freeMemProcess].end()){
+			addTableEntry(uP, t->getStart(), uP->getMemSize(), uP->getNextUsageTime());
 			//cout << t->getStart() <<"\n";
 			updateFreeSpace();
 			//printFreeSpace(32);
@@ -263,7 +273,7 @@ int memDevice::insertMemoryContiguous(process* uP){
 		stringstream msg;
 		msg << "Placed process " << uP->getProcessID() << ":\n";
 		printMsg(msg.str());
-		printMem(this->fpl);
+		printMem();
 		return 0;
 	}
 	else{
@@ -278,45 +288,49 @@ int memDevice::insertMemoryContiguous(process* uP){
 int memDevice::insertMemoryNonContiguous(process* uP){
 	bool placed = false;
 	//we do a simple first-fit algorithm:
-	for(vector<dataEntry>::iterator i = freeSpace.begin(); i != freeSpace.end(); ++i){
+	int memRemaining = uP->getMemSize();
+	pageTable[freeMemProcess].sort(sortByLocation);
+	for(list<dataEntry>::iterator i = pageTable[freeMemProcess].begin(); i != pageTable[freeMemProcess].end(); ++i){
 		//If the slot is big enough to fit the object, awesome:
-		if(uP->getMemSize() < i->getEntrySize()){
-			addTableEntry(uP, i->getStart(), uP->getMemSize(), uP->getNextUsageTime());
-			freeSpace.erase(i);
-			updateFreeSpace();
+		if(memRemaining <= i->getEntrySize()){
+			addTableEntry(uP, i->getStart(), memRemaining, uP->getNextUsageTime());
 			placed = true;
 			break;
 		}
-		else{ //Now comes the hard part, we have to break up the memory
-
-		}
+		if(i->getEntrySize() < memRemaining){
+			addTableEntry(uP, i->getStart(), i->getEntrySize(), uP->getNextUsageTime());
+			memRemaining -= i->getEntrySize();
+		}					
+	
 	}
+	updateFreeSpace();
 
 	if(placed){
 		stringstream msg;
 		msg << "Placed process " << uP->getProcessID() << ":\n";
 		printMsg(msg.str());
-		printMem(this->fpl);
+		printMem();
 		return 0;
 	}
+	return -1;
 }
 
 int memDevice::insertMemory(process* uP){
-	if(totalSize(&freeSpace) < uP->getMemSize()){
+	if(totalSize(freeMemProcess) < uP->getMemSize()){
 		return -1;
 	}
-
 	if(this->style == "Contiguous"){
 		return insertMemoryContiguous(uP);
 	}
 	else if(this->style == "Non-Contiguous"){
-		insertMemoryNonContiguous(uP);
+		return insertMemoryNonContiguous(uP);
+		printMem();
 	}
 	else{
 		return -1;
 	}
 }
-
+ 
 void memDevice::printProcesses(){
 	for(list<process*>::iterator i = waitingProcesses.begin(); i != waitingProcesses.end(); ++i){
 		(*i)->printStatistics();
@@ -324,42 +338,35 @@ void memDevice::printProcesses(){
 }
 
 void memDevice::updateFreeSpace(){
-	freeSpace.clear();
-	sort(this->data.begin(), this->data.end(), sortByLocation);
-	char nP = '#';
-	if(pageTable.size() == 0){
-		dataEntry temp(nP, 0, this->getSize(), -1);
-		this->freeSpace.push_back(temp);
-	}
-	else{
-		vector<dataEntry>::iterator i = data.begin();
-		for(; i != data.end(); ++i){
-			if(i == data.begin()){
-				if(i->getStart() != 0){
-					dataEntry temp(nP, 0, i->getStart(), -1);
-					// cout << "SIZE: " << temp.getEntrySize() << " START: "
-					// 	 << temp.getStart() << " END: " << temp.getEnd() << endl;
-					addEntry(nP, 0, i->getStart(), -1);
-				}
-				
-			}
-			else{
-				vector<dataEntry>::iterator prev = i-1;
-				if(i->getStart() - prev->getEnd() > 1){
-					dataEntry temp(nP, prev->getEnd() + 1, i->getStart() - prev->getEnd() - 1, -1);
-					// cout << "SIZE: " << temp.getEntrySize() << " START: "
-					// 	 << temp.getStart() << " END: " << temp.getEnd() << endl;
-					addEntry(nP, prev->getEnd() + 1, i->getStart() - prev->getEnd() - 1, -1);
+	pageTable[freeMemProcess].clear();
+	dataEntry memInit(freeMemProcess->getProcessID(), 0, size, -1);
+	pageTable[freeMemProcess].push_back(memInit); 
+	for(map<process*, list<dataEntry> >::iterator p = pageTable.begin(); p != pageTable.end(); ++p){
+		if(p->first != freeMemProcess){
+			for(list<dataEntry>::iterator d = p->second.begin(); d != p->second.end(); ++d){
+				//Here we resize the memory blocks around the process
+				for(list<dataEntry>::iterator f = pageTable[freeMemProcess].begin();
+					 						f != pageTable[freeMemProcess].end(); ++f){
+					//Iterate through each member of the free space list
+					if(f->getStart() <= d->getStart() && d->getEnd() <= f->getEnd()){
+						if(f->getEnd()-d->getEnd() > 0){
+							dataEntry temp(freeMemProcess->getProcessID(), d->getEnd() + 1, f->getEnd()-d->getEnd(), -1);
+							pageTable[freeMemProcess].push_back(temp);
+						}
+						if(d->getStart()-f->getStart() > 0){
+							f->setSize(d->getStart()-f->getStart());
+						}
+						else{
+							f = pageTable[freeMemProcess].erase(f);
+							--f;
+						}
+
+					}
 				}
 			}
 		}
-		//Check final value:
-		--i;
-		if(this->getSize() - i->getEnd() > 1){
-			dataEntry temp(nP, i->getEnd() + 1, this->getSize() - i->getEnd() - 1, -1);
-			// cout << "SIZE: " << temp.getEntrySize() << " START: "
-			// 			 << temp.getStart() << " END: " << temp.getEnd() << endl;
-			addEntry(nP, i->getEnd() + 1, this->getSize() - i->getEnd() - 1, -1);
+		else{
+			//do nothing
 		}
 	}
 }
@@ -409,15 +416,7 @@ void memDevice::updateFreeSpace(){
 
 int memDevice::removeMemory(process* uP){
 	pageTable.erase(uP);
-	vector<dataEntry>::iterator i = data.begin();
-	while(i != data.end()){
-		if(i->getUserProcess() == uP->getProcessID()){
-			i = data.erase(i);
-		}
-		else{
-			++i;
-		}
-	}
+	updateFreeSpace();
 	return 0;
 }
 
@@ -445,13 +444,11 @@ void memDevice::checkWaiting(){
 			++i;
 		}
 	}
+	updateFreeSpace();
 }
 
 void memDevice::checkFinished(){
-	if(!runningProcesses.empty()){
-		for(list<process*>::iterator i = runningProcesses.begin(); i != runningProcesses.end(); ++i){
-			//cout << (*i)->getProcessID() << endl;
-		}
+	if(pageTable.size() != 1){
 		this->isFinished = false;
 		return;
 	}
@@ -483,21 +480,19 @@ void memDevice::checkRunning(){
 			printMsg(msg.str());
 			removeMemory(*i);
 			i = runningProcesses.erase(i);
-			printMem(this->fpl);
+			printMem();
 		}
 		else{
 			++i;
 		}
 	}
+	updateFreeSpace();
 }
 
 void memDevice::cycleMemDevice(){
 	checkWaiting();
-	updateFreeSpace();
 	checkRunning();
-	updateFreeSpace();
 	checkFinished();
-
 	++currentCycle;
 
 }
