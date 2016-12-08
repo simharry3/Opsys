@@ -11,6 +11,8 @@ page::page(int pageNumber){
 
 virtualMemoryDevice::virtualMemoryDevice(string algorithm, char* filename){
 	readInputFile(filename);
+	page* temp = new page(-1);
+	emptyPage = temp;
 	this->algorithm = algorithm;
 	frameSize = 3;
 	currentCycle = 0;
@@ -19,25 +21,61 @@ virtualMemoryDevice::virtualMemoryDevice(string algorithm, char* filename){
 
 virtualMemoryDevice::virtualMemoryDevice(string algorithm, int frameSize, char* filename){
 	readInputFile(filename);
+	page* temp = new page(-1);
+	emptyPage = temp;
 	this->algorithm = algorithm;
 	this->frameSize = frameSize;
 	currentCycle = 0;
 }
 
-int virtualMemoryDevice::findVictim(){
+vector<page>::iterator virtualMemoryDevice::findVictim(){
+	//Check to see if there are any empty slots:
+
+	for(vector<page>::iterator i = frame.begin(); i != frame.end(); ++i){
+		if(i->getPageNumber() == emptyPage->getPageNumber()){
+			return i;
+		}
+	}
+
+	vector<page>::iterator out;
+
 	if(algorithm == "OPT"){
-		int nextAccessTime = 0;
-		for(list<int>::iterator i = pageReferences.begin(); i != pageReferences.end(); ++i){
+		int maxAccess = 0;
+		for(vector<page>::iterator i = frame.begin(); i != frame.end(); ++i){
+			int nextAccess = 0;
+			for(list<int>::iterator j = pageReferences.begin(); j != pageReferences.end(); ++j){
+				++nextAccess;
+				if(i->getPageNumber() == *j){
+					if(nextAccess > maxAccess){
+						out = i;
+						maxAccess = nextAccess;
+						break;
+					}
+					else if(nextAccess == maxAccess && i->getPageNumber() < out->getPageNumber()){
+						out = i;
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	else if(algorithm == "LRU"){
+		int longestWait = 0;
+		for(vector<page>::iterator i = frame.begin(); i != frame.end(); ++i){
+			if(i->getWaitTime() > longestWait){
+				longestWait = i->getWaitTime();
+			}
+		}
+	}
+	else if(algorithm == "LFU"){
+		int lowestFrequency = 0;
+		for(vector<page>::iterator i = frame.begin(); i != frame.end(); ++i){
 
 		}
 	}
-	else if(algorithm == "LRU"){
-		int longestWait = 0;
 
-	}
-	else if(algorithm == "LFU"){
-
-	}
+	return out;
 }
 
 bool virtualMemoryDevice::checkInsertNextReference(){
@@ -49,7 +87,7 @@ bool virtualMemoryDevice::checkInsertNextReference(){
 			return true;
 		}
 	}
-	int victim = findVictim();
+	vector<page>::iterator victim = findVictim();
 	return false;
 }
 
@@ -67,6 +105,9 @@ void virtualMemoryDevice::readInputFile(char* filename){
 bool virtualMemoryDevice::cycleMemDevice(){
 	checkInsertNextReference();
 	++currentCycle;
+	for(vector<page>::iterator i = frame.begin(); i != frame.end(); ++i){
+		i->cycle();
+	}
 	if(pageReferences.empty()){
 		return true;
 	}
