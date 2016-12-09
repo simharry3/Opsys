@@ -1,3 +1,11 @@
+////////////////////////////////////////////////////////////
+//Computer Operating Systems Project 2: Memory Management
+//
+//Written By: Clayton Rayment
+//RCSID: raymec
+//RIN: 661133772
+///////////////////////////////////////////////////////////
+
 #ifndef __PROCESS_H_INCLUDED__
 #define __PROCESS_H_INCLUDED__
 

@@ -1,10 +1,21 @@
+////////////////////////////////////////////////////////////
+//Computer Operating Systems Project 2: Memory Management
+//
+//Written By: Clayton Rayment
+//RCSID: raymec
+//RIN: 661133772
+///////////////////////////////////////////////////////////
+
 #include "memDevice.h"
 #include "pageReference.h"
 
 using namespace std;
 int main(int argc, char* argv[]){
+
+	//Here you can set the frames per line for memoryDevice output:
 	int fpl = 32;
-	string testInitializer = "Q 100 0/100 200/100";
+
+	//Main test block for memoryDevices:
 	memDevice bank1(256, 1, "Contiguous", "Next-Fit", fpl);
 	bank1.loadProcesses(argv[1]);
 	while(!bank1.getStatus()){
@@ -32,18 +43,28 @@ int main(int argc, char* argv[]){
 		bank5.cycleMemDevice();
 	}
 
+
+	//Main test block for virtualMemoryDevices:
 	virtualMemoryDevice bank6("OPT", argv[2]);
 	while(!bank6.cycleMemDevice());
 
-	// int n = 560;
-	// for(int i = 0; i < n; ++i){
-	// 	bank1.cycleMemDevice();
-	// 	//bank1.printMem(fpl);
-	// }		
-	// bank1.printFreeSpace(fpl);
-	// bank1.defrag();
-	// cout << "//////// DEFRAG ////////" << endl;
-	// bank1.printMem(fpl);
-	// bank1.printFreeSpace(fpl);
+	//When you construct a virtualMemoryDevice, you can leave off the frame size, and it defaults to 3,
+	//otherwise, it will be whatever value you set as the last argument:
+	virtualMemoryDevice bank7("LRU", argv[2], 3);
+	while(!bank7.cycleMemDevice());
 
+	virtualMemoryDevice bank8("LFU", argv[2]);
+	while(!bank8.cycleMemDevice());
 }
+
+
+/////////////////////////////////////////////
+//------------------------------------------
+//		   _   _______	 
+//     _-_- |_/\______\___
+//=  _=_-_  / ,-. -|-  ,-.`-.  =	=	=
+//     _-_- `( o )----( o )-'
+//            `-'      `-'
+// WHEN   LIFE   THROWS   YOU  CURVES
+//		 H I T   T H E   A P E X
+////////////////////////////////////////////

@@ -1,3 +1,12 @@
+////////////////////////////////////////////////////////////
+//Computer Operating Systems Project 2: Memory Management
+//
+//Written By: Clayton Rayment
+//RCSID: raymec
+//RIN: 661133772
+///////////////////////////////////////////////////////////
+
+
 #include "memDevice.h"
 
 using namespace std;
@@ -51,7 +60,7 @@ int memDevice::addEntry(char uP, int start, int size, int d){
 	return 0;
 }
 
-
+//Adds an entry to the page table map:
 int memDevice::addTableEntry(process* uP, int start, int size, int d){
 	dataEntry temp(uP->getProcessID(), start, size, d);
 	if(uP->getProcessID() == '#'){
@@ -68,17 +77,19 @@ int memDevice::addTableEntry(process* uP, int start, int size, int d){
 	return 0;
 }
 
-
+//Sort function so we can sort() by location in memory
 bool sortByLocation(dataEntry a, dataEntry b){
 	return a.getEnd() < b.getStart();
 }
 
-
+//Same sort function as above except takes dataEntry* as input. 
 bool sortByLocationPointer(dataEntry* a, dataEntry* b){
 	return a->getEnd() < b->getStart();
 }
 
 
+//This function defrags the memory stored by this device, leaving only one large free space
+//at the end of the memory sequence:
 int memDevice::defrag(){
 	int defragTime = 0;
 	//Sort data vector by start position in memory
@@ -141,6 +152,7 @@ void memDevice::printMem(){
 	cout << string(fpl, '=') << endl;
 }
 
+//Pretty output for printing the free space. Used mostly for debugging:
 void memDevice::printFreeSpace(){
 	cout << string(fpl, '=') << endl;
 	for(int j = 0; j < (size/fpl); ++j){
@@ -161,6 +173,7 @@ void memDevice::printFreeSpace(){
 	cout << string(fpl, '=') << endl;
 }
 
+//Loads the processes into the memory device given the input file:
 void memDevice::loadProcesses(char* filename){
 	ifstream data;
 	data.open(filename);
@@ -175,6 +188,9 @@ void memDevice::loadProcesses(char* filename){
 	data.close();
 }
 
+//Returns the total amount of memory that a given process is using. This is useful for calculating the
+//free space available, as we can just pass it the dummy process for free space and it will return how
+//much space the free space "process" is using:
 int memDevice::totalSize(process* uP){
 	int size = 0;
 	if(pageTable[uP].empty()){
@@ -189,7 +205,8 @@ int memDevice::totalSize(process* uP){
 }
 
 
-
+//Insertion functions for contiguous memory addition, based on what algorithm the current memory device
+//was initialized with:
 int memDevice::insertMemoryContiguous(process* uP){
 	bool placed = false;
 	if(this->getAlgorithm() == "First-Fit"){
@@ -285,6 +302,8 @@ int memDevice::insertMemoryContiguous(process* uP){
 	}
 }
 
+//Insertion function for non-contiguous memory allocation. Uses a first-fit algorithm starting from the
+//first memory index:
 int memDevice::insertMemoryNonContiguous(process* uP){
 	bool placed = false;
 	//we do a simple first-fit algorithm:
@@ -315,6 +334,9 @@ int memDevice::insertMemoryNonContiguous(process* uP){
 	return -1;
 }
 
+//Main memory insertion function. Used mostly to clean up code, and make it more readable. All it does is
+//decide if there's enough free space to handle the given process, and if so, calls the appropriate insertion
+//function given the memory device's current insertion scheme:
 int memDevice::insertMemory(process* uP){
 	if(totalSize(freeMemProcess) < uP->getMemSize()){
 		return -1;
@@ -330,13 +352,15 @@ int memDevice::insertMemory(process* uP){
 		return -1;
 	}
 }
- 
+
+//Prints process statistics nicely for all processes in the waiting queue. Used mostly for debugging.
 void memDevice::printProcesses(){
 	for(list<process*>::iterator i = waitingProcesses.begin(); i != waitingProcesses.end(); ++i){
 		(*i)->printStatistics();
 	}
 }
 
+//Updates the free space entry in the page table map. Called whenever we insert or remove a function.
 void memDevice::updateFreeSpace(){
 	pageTable[freeMemProcess].clear();
 	dataEntry memInit(freeMemProcess->getProcessID(), 0, size, -1);
@@ -365,61 +389,18 @@ void memDevice::updateFreeSpace(){
 				}
 			}
 		}
-		else{
-			//do nothing
-		}
 	}
 }
 
-
-/*
-void memDevice::updateFreeSpace(){
-	freeSpace.clear();
-	sort(this->data.begin(), this->data.end(), sortByLocation);
-	char nP = '#';
-	if(data.size() == 0){
-		dataEntry temp(nP, 0, this->getSize(), -1);
-		this->freeSpace.push_back(temp);
-	}
-	else{
-		vector<dataEntry>::iterator i = data.begin();
-		for(; i != data.end(); ++i){
-			if(i == data.begin()){
-				if(i->getStart() != 0){
-					dataEntry temp(nP, 0, i->getStart(), -1);
-					// cout << "SIZE: " << temp.getEntrySize() << " START: "
-					// 	 << temp.getStart() << " END: " << temp.getEnd() << endl;
-					addEntry(nP, 0, i->getStart(), -1);
-				}
-				
-			}
-			else{
-				vector<dataEntry>::iterator prev = i-1;
-				if(i->getStart() - prev->getEnd() > 1){
-					dataEntry temp(nP, prev->getEnd() + 1, i->getStart() - prev->getEnd() - 1, -1);
-					// cout << "SIZE: " << temp.getEntrySize() << " START: "
-					// 	 << temp.getStart() << " END: " << temp.getEnd() << endl;
-					addEntry(nP, prev->getEnd() + 1, i->getStart() - prev->getEnd() - 1, -1);
-				}
-			}
-		}
-		//Check final value:
-		--i;
-		if(this->getSize() - i->getEnd() > 1){
-			dataEntry temp(nP, i->getEnd() + 1, this->getSize() - i->getEnd() - 1, -1);
-			// cout << "SIZE: " << temp.getEntrySize() << " START: "
-			// 			 << temp.getStart() << " END: " << temp.getEnd() << endl;
-			addEntry(nP, i->getEnd() + 1, this->getSize() - i->getEnd() - 1, -1);
-		}
-	}
-}*/
-
+//Removes memory from the page table. Originally this was a much longer function, but then I started using
+//a map rather than a vector. Hooray.
 int memDevice::removeMemory(process* uP){
 	pageTable.erase(uP);
 	updateFreeSpace();
 	return 0;
 }
 
+//Checks the functions that are in the waiting queue, and if necessary inserts them into memory to be running
 void memDevice::checkWaiting(){
 	list<process*>::iterator i = waitingProcesses.begin();
 	while(i != waitingProcesses.end()){
@@ -447,6 +428,7 @@ void memDevice::checkWaiting(){
 	updateFreeSpace();
 }
 
+//Checks to see if the memory device has finished executing all items in the waiting queue:
 void memDevice::checkFinished(){
 	if(pageTable.size() != 1){
 		this->isFinished = false;
@@ -460,15 +442,17 @@ void memDevice::checkFinished(){
 		}
 	}
 	stringstream msg;
-	msg << "Simulator ended (" << this->style << " -- " << this->algorithm << ")\n";
+	msg << "Simulator ended (" << this->style << " -- " << this->algorithm << ")\n\n";
 	printMsg(msg.str());
 	this->isFinished = true;
 }
 
+//Prints a nice message in the proper formatting to the terminal:
 void memDevice::printMsg(string msg){
 	cout << "time " << currentCycle << "ms: " << msg;
 }
 
+//Checks the running processes to see which ones are finished:
 void memDevice::checkRunning(){
 	list<process*>::iterator i = runningProcesses.begin();
 	while(i != runningProcesses.end()){
@@ -489,6 +473,7 @@ void memDevice::checkRunning(){
 	updateFreeSpace();
 }
 
+//Main device cycle, pretty self explanitory:
 void memDevice::cycleMemDevice(){
 	checkWaiting();
 	checkRunning();
@@ -496,3 +481,15 @@ void memDevice::cycleMemDevice(){
 	++currentCycle;
 
 }
+
+
+
+
+/////////////////////////////////////////////
+//
+//     _-_-  _/\______\\__
+//  _-_-__  / ,-. -|-  ,-.`-.
+//     _-_- `( o )----( o )-'
+//            `-'      `-'
+// I ' D   R A T H E R   B E   R A C I N G
+////////////////////////////////////////////

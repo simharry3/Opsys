@@ -1,3 +1,11 @@
+////////////////////////////////////////////////////////////
+//Computer Operating Systems Project 2: Memory Management
+//
+//Written By: Clayton Rayment
+//RCSID: raymec
+//RIN: 661133772
+///////////////////////////////////////////////////////////
+
 #include "process.h"
 
 process::process(string initializer){
@@ -35,17 +43,20 @@ process::process(string initializer){
 	}
 }
 
+//Some cleanup features for completing a cycle and preparing for the next:
 void process::completeCycle(){
 	arrivalTimes.pop_front();
 	usageTimes.pop_front();
 }
 
+//Used by defrag() function to delay the next arrival times of the process:
 void process::delayArrivalTime(int t){
 	for(list<int>::iterator i = arrivalTimes.begin(); i != arrivalTimes.end(); ++i){
 		*i += t;
 	}
 }
 
+//Used by defrag() for processes that are running so that current arrival times don't get adjusted
 void process::delayArrivalTimeRunning(int t){
 	if((arrivalTimes.size() > 1)){
 		for(list<int>::iterator i = ++arrivalTimes.begin(); i != arrivalTimes.end(); ++i){
@@ -54,13 +65,14 @@ void process::delayArrivalTimeRunning(int t){
 	}
 }
 
+//Delays the next usage time value. Used by defrag()
 void process::delayNextUsageTime(int t){
 	int uT = usageTimes.front();
 	usageTimes.pop_front();
 	usageTimes.push_front(uT + t);
 }
 
-
+//Pretty output for debugging:
 void process::printStatistics(){
 	cout << "==========================\n";
 	cout << "PROCESS ID: " << getProcessID() << endl;

@@ -1,3 +1,6 @@
+#ifndef __PAGEREFERENCE_H_INCLUDED__
+#define __PAGEREFERENCE_H_INCLUDED__
+
 #include <map>
 #include <list>
 #include <vector>
@@ -8,6 +11,7 @@
 
 using namespace std;
 
+//Page class is used by the frame just to store some basic information about the virtual memory frame
 class page{
 public:
 	page(int pageNumber);
@@ -24,10 +28,12 @@ private:
 	int waitTime;
 };
 
+//This is the main virtual memory object:
 class virtualMemoryDevice{
 public:
 	virtualMemoryDevice(string algorithm, char* filename);
-	virtualMemoryDevice(string algorithm, int frameSize, char* filename);
+	virtualMemoryDevice(string algorithm, char* filename, int frameSize);
+	void printMsg(int ref, int vic);
 	vector<page>::iterator findVictim();
 	void readInputFile(char* filename);
 	bool checkInsertNextReference();
@@ -37,9 +43,12 @@ public:
 private:
 	int frameSize;
 	int currentCycle;
+	int numPageFaults;
 	string algorithm;
 	vector<page> frame;
 	list<int> pageReferences;
 	page* emptyPage;
 
 };
+
+#endif
