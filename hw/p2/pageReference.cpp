@@ -164,10 +164,8 @@ void virtualMemoryDevice::readInputFile(char* filename){
 	ifstream data;
 	data.open(filename);
 	char c;
-	int i;
 	while(data.get(c)){
 		if(c != ' '){
-			i = c - '0';
 			pageReferences.push_back(c - '0');
 		}
 	}
